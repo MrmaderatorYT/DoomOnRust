@@ -56,7 +56,7 @@ fn main() -> Result<(), String> {
             (
             player_pos.0 + player_angle.cos() * PLAYER_SPEED,
             player_pos.1 + player_angle.sin() * PLAYER_SPEED,
-                )   
+                )
         }else if keys.contains(&Keycode::S){
             (
                 player_pos.0 - player_angle.cos() * PLAYER_SPEED,
