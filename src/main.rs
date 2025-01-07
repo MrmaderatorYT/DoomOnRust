@@ -7,9 +7,12 @@ use std::time::Duration;
 const SCREEN_WIDTH: u32 = 800;
 const SCREEN_HEIGHT: u32 = 600;
 const FOV: f64 = std::f64::consts::FRAC_PI_3; // Угол обзора 60 градусов
-const PLAYER_SPEED: f64 = 0.1; // Швидкість гравця
+const MAX_PLAYER_SPEED: f64 = 0.2; // Максимальна швидкість гравця
+const MIN_PLAYER_SPEED: f64 = 0.05; // Мінімальна швидкість після зіткнення
+const PLAYER_ACCELERATION: f64 = 0.02; // Прискорення гравця
+const PLAYER_DECELERATION: f64 = 0.05; // Гальмування гравця
 const ROTATION_SPEED: f64 = 0.1; // Швидкість повороту
-const BULLET_SPEED: f64 = 100.0; // Збільшена швидкість кулі
+const BULLET_SPEED: f64 = 5.0; // Швидкість кулі
 
 fn main() -> Result<(), String> {
     // Ініціалізація SDL
@@ -38,6 +41,9 @@ fn main() -> Result<(), String> {
     // Позиція гравця
     let mut player_pos = (1.5, 1.5);
     let mut player_angle: f64 = 0.0;
+
+    // Швидкість гравця
+    let mut player_speed: f64 = 0.0;
 
     // Кулі
     let mut bullets: Vec<(f64, f64)> = Vec::new(); // (x, y) позиції куль на екрані
@@ -70,24 +76,48 @@ fn main() -> Result<(), String> {
             .filter_map(Keycode::from_scancode)
             .collect();
 
-        // Рух вперед/назад
-        let (new_x, new_y) = if keys.contains(&Keycode::W) {
-            (
-                player_pos.0 + player_angle.cos() * PLAYER_SPEED,
-                player_pos.1 + player_angle.sin() * PLAYER_SPEED,
-            )
+        // Прискорення гравця вперед/назад
+        if keys.contains(&Keycode::W) {
+            player_speed += PLAYER_ACCELERATION;
+            if player_speed > MAX_PLAYER_SPEED {
+                player_speed = MAX_PLAYER_SPEED;
+            }
         } else if keys.contains(&Keycode::S) {
-            (
-                player_pos.0 - player_angle.cos() * PLAYER_SPEED,
-                player_pos.1 - player_angle.sin() * PLAYER_SPEED,
-            )
+            player_speed -= PLAYER_ACCELERATION;
+            if player_speed < -MAX_PLAYER_SPEED {
+                player_speed = -MAX_PLAYER_SPEED;
+            }
         } else {
-            player_pos
-        };
+            // Гальмування, якщо гравець не рухається
+            if player_speed > 0.0 {
+                player_speed -= PLAYER_DECELERATION;
+                if player_speed < 0.0 {
+                    player_speed = 0.0;
+                }
+            } else if player_speed < 0.0 {
+                player_speed += PLAYER_DECELERATION;
+                if player_speed > 0.0 {
+                    player_speed = 0.0;
+                }
+            }
+        }
+
+        // Рух гравця
+        let (new_x, new_y) = (
+            player_pos.0 + player_angle.cos() * player_speed,
+            player_pos.1 + player_angle.sin() * player_speed,
+        );
 
         // Перевірка колізій
         if map[new_y as usize][new_x as usize] == 0 {
             player_pos = (new_x, new_y);
+        } else {
+            // Якщо гравець врізається в стіну, швидкість зменшується до мінімальної
+            if player_speed > 0.0 {
+                player_speed = MIN_PLAYER_SPEED;
+            } else if player_speed < 0.0 {
+                player_speed = -MIN_PLAYER_SPEED;
+            }
         }
 
         // Поворот вліво/вправо
