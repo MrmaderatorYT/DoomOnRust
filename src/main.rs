@@ -9,7 +9,7 @@ const SCREEN_HEIGHT: u32 = 600;
 const FOV: f64 = std::f64::consts::FRAC_PI_3; // Угол обзора 60 градусов
 const PLAYER_SPEED: f64 = 0.1; // Швидкість гравця
 const ROTATION_SPEED: f64 = 0.1; // Швидкість повороту
-const BULLET_SPEED: f64 = 0.5; // Швидкість пульки
+const BULLET_SPEED: f64 = 100.0; // Збільшена швидкість кулі
 
 fn main() -> Result<(), String> {
     // Ініціалізація SDL
@@ -39,11 +39,11 @@ fn main() -> Result<(), String> {
     let mut player_pos = (1.5, 1.5);
     let mut player_angle: f64 = 0.0;
 
-    // Пульки
-    let mut bullets: Vec<(f64, f64)> = Vec::new();
+    // Кулі
+    let mut bullets: Vec<(f64, f64)> = Vec::new(); // (x, y) позиції куль на екрані
 
     'running: loop {
-        // Обработка событий
+        // Обробка подій
         for event in event_pump.poll_iter() {
             match event {
                 Event::Quit { .. } => break 'running,
@@ -54,10 +54,9 @@ fn main() -> Result<(), String> {
                     if keycode == Keycode::Escape {
                         break 'running;
                     }
-                    // Стріляти при натисканні пробілу
                     if keycode == Keycode::Space {
-                        let bullet_pos = (player_pos.0, player_pos.1);
-                        bullets.push(bullet_pos);
+                        // Додаємо кулю при натисканні пробілу
+                        bullets.push((50.0, SCREEN_HEIGHT as f64 - 100.0)); // Початкова позиція кулі (зброя)
                     }
                 }
                 _ => {}
@@ -99,6 +98,31 @@ fn main() -> Result<(), String> {
             player_angle += ROTATION_SPEED;
         }
 
+        // Оновлення позиції куль
+        for bullet in &mut bullets {
+            // Напрямок кулі завжди в центр екрану
+            let center_x = SCREEN_WIDTH as f64 / 2.0;
+            let center_y = SCREEN_HEIGHT as f64 / 2.0;
+
+            let dx = center_x - bullet.0;
+            let dy = center_y - bullet.1;
+            let length = (dx * dx + dy * dy).sqrt();
+
+            // Нормалізуємо напрямок і рухаємо кулю
+            if length > 0.0 {
+                bullet.0 += (dx / length) * BULLET_SPEED;
+                bullet.1 += (dy / length) * BULLET_SPEED;
+            }
+        }
+
+        // Видалення куль, які досягли центру екрану
+        bullets.retain(|bullet| {
+            let center_x = SCREEN_WIDTH as f64 / 2.0;
+            let center_y = SCREEN_HEIGHT as f64 / 2.0;
+            let distance = (bullet.0 - center_x).hypot(bullet.1 - center_y);
+            distance > 10.0 // Видаляємо кулю, якщо вона близько до центру
+        });
+
         // Очистка екрану
         canvas.set_draw_color(Color::RGB(0, 0, 0));
         canvas.clear();
@@ -117,24 +141,15 @@ fn main() -> Result<(), String> {
             canvas.fill_rect(Rect::new(x as i32, wall_top as i32, 1, wall_height))?;
         }
 
-        // Малювання пульок
-        canvas.set_draw_color(Color::RGB(0, 255, 0)); // Зелений колір для пульок
-        for bullet in &bullets {
-            let (bx, by) = bullet;
-            let screen_x = ((bx - player_pos.0) * 100.0 + (SCREEN_WIDTH as f64 / 2.0)) as i32;
-            let screen_y = ((by - player_pos.1) * 100.0 + (SCREEN_HEIGHT as f64 / 2.0)) as i32;
-            canvas.fill_rect(Rect::new(screen_x, screen_y, 5, 5))?;
-        }
+        // Малювання зброї (простий прямокутник зліва внизу)
+        canvas.set_draw_color(Color::RGB(100, 100, 100)); // Сірий колір для зброї
+        canvas.fill_rect(Rect::new(50, SCREEN_HEIGHT as i32 - 100, 50, 50))?;
 
-        // Оновлення позиції пульок
-        bullets = bullets
-            .into_iter()
-            .map(|(bx, by)| {
-                let new_bx = bx + player_angle.cos() * BULLET_SPEED;
-                let new_by = by + player_angle.sin() * BULLET_SPEED;
-                (new_bx, new_by)
-            })
-            .collect();
+        // Малювання куль
+        canvas.set_draw_color(Color::RGB(255, 0, 0)); // Червоний колір для куль
+        for bullet in &bullets {
+            canvas.fill_rect(Rect::new(bullet.0 as i32, bullet.1 as i32, 5, 5))?;
+        }
 
         // Оновлення екрану
         canvas.present();
