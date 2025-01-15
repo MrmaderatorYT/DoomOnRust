@@ -13,6 +13,14 @@ const PLAYER_ACCELERATION: f64 = 0.02; // Прискорення гравця
 const PLAYER_DECELERATION: f64 = 0.05; // Гальмування гравця
 const ROTATION_SPEED: f64 = 0.1; // Швидкість повороту
 const BULLET_SPEED: f64 = 5.0; // Швидкість кулі
+const ENEMY_SPEED: f64 = 0.02; // Швидкість руху ворогів
+const ENEMY_DAMAGE: i32 = 10; // Шкода, яку завдає ворог
+const PLAYER_HEALTH: i32 = 100; // Початкове здоров'я гравця
+
+struct Enemy {
+    pos: (f64, f64),
+    health: i32,
+}
 
 fn main() -> Result<(), String> {
     // Ініціалізація SDL
@@ -41,12 +49,23 @@ fn main() -> Result<(), String> {
     // Позиція гравця
     let mut player_pos = (1.5, 1.5);
     let mut player_angle: f64 = 0.0;
-
-    // Швидкість гравця
     let mut player_speed: f64 = 0.0;
+    let mut player_health = PLAYER_HEALTH;
 
     // Кулі
-    let mut bullets: Vec<(f64, f64)> = Vec::new(); // (x, y) позиції куль на екрані
+    let mut bullets: Vec<(f64, f64)> = Vec::new();
+
+    // Вороги
+    let mut enemies = vec![
+        Enemy {
+            pos: (3.5, 3.5),
+            health: 100,
+        },
+        Enemy {
+            pos: (5.5, 5.5),
+            health: 100,
+        },
+    ];
 
     'running: loop {
         // Обробка подій
@@ -61,8 +80,7 @@ fn main() -> Result<(), String> {
                         break 'running;
                     }
                     if keycode == Keycode::Space {
-                        // Додаємо кулю при натисканні пробілу
-                        bullets.push((50.0, SCREEN_HEIGHT as f64 - 100.0)); // Початкова позиція кулі (зброя)
+                        bullets.push((50.0, SCREEN_HEIGHT as f64 - 100.0));
                     }
                 }
                 _ => {}
@@ -76,7 +94,6 @@ fn main() -> Result<(), String> {
             .filter_map(Keycode::from_scancode)
             .collect();
 
-        // Прискорення гравця вперед/назад
         if keys.contains(&Keycode::W) {
             player_speed += PLAYER_ACCELERATION;
             if player_speed > MAX_PLAYER_SPEED {
@@ -88,7 +105,6 @@ fn main() -> Result<(), String> {
                 player_speed = -MAX_PLAYER_SPEED;
             }
         } else {
-            // Гальмування, якщо гравець не рухається
             if player_speed > 0.0 {
                 player_speed -= PLAYER_DECELERATION;
                 if player_speed < 0.0 {
@@ -102,17 +118,14 @@ fn main() -> Result<(), String> {
             }
         }
 
-        // Рух гравця
         let (new_x, new_y) = (
             player_pos.0 + player_angle.cos() * player_speed,
             player_pos.1 + player_angle.sin() * player_speed,
         );
 
-        // Перевірка колізій
         if map[new_y as usize][new_x as usize] == 0 {
             player_pos = (new_x, new_y);
         } else {
-            // Якщо гравець врізається в стіну, швидкість зменшується до мінімальної
             if player_speed > 0.0 {
                 player_speed = MIN_PLAYER_SPEED;
             } else if player_speed < 0.0 {
@@ -120,7 +133,6 @@ fn main() -> Result<(), String> {
             }
         }
 
-        // Поворот вліво/вправо
         if keys.contains(&Keycode::A) {
             player_angle -= ROTATION_SPEED;
         }
@@ -130,7 +142,6 @@ fn main() -> Result<(), String> {
 
         // Оновлення позиції куль
         for bullet in &mut bullets {
-            // Напрямок кулі завжди в центр екрану
             let center_x = SCREEN_WIDTH as f64 / 2.0;
             let center_y = SCREEN_HEIGHT as f64 / 2.0;
 
@@ -138,50 +149,88 @@ fn main() -> Result<(), String> {
             let dy = center_y - bullet.1;
             let length = (dx * dx + dy * dy).sqrt();
 
-            // Нормалізуємо напрямок і рухаємо кулю
             if length > 0.0 {
                 bullet.0 += (dx / length) * BULLET_SPEED;
                 bullet.1 += (dy / length) * BULLET_SPEED;
             }
         }
 
-        // Видалення куль, які досягли центру екрану
         bullets.retain(|bullet| {
             let center_x = SCREEN_WIDTH as f64 / 2.0;
             let center_y = SCREEN_HEIGHT as f64 / 2.0;
             let distance = (bullet.0 - center_x).hypot(bullet.1 - center_y);
-            distance > 10.0 // Видаляємо кулю, якщо вона близько до центру
+            distance > 10.0
         });
+
+        // Рух ворогів
+        for enemy in &mut enemies {
+            let dx = player_pos.0 - enemy.pos.0;
+            let dy = player_pos.1 - enemy.pos.1;
+            let length = (dx * dx + dy * dy).sqrt();
+
+            if length > 0.0 {
+                enemy.pos.0 += (dx / length) * ENEMY_SPEED;
+                enemy.pos.1 += (dy / length) * ENEMY_SPEED;
+            }
+
+            // Перевірка зіткнення з гравцем
+            if (enemy.pos.0 - player_pos.0).hypot(enemy.pos.1 - player_pos.1) < 0.5 {
+                player_health -= ENEMY_DAMAGE;
+                if player_health <= 0 {
+                    println!("Game Over!");
+                    break 'running;
+                }
+            }
+        }
 
         // Очистка екрану
         canvas.set_draw_color(Color::RGB(0, 0, 0));
         canvas.clear();
 
-        // Raycasting
+        // Raycasting для стін
         for x in 0..SCREEN_WIDTH {
             let ray_angle = player_angle - FOV / 2.0 + (x as f64 / SCREEN_WIDTH as f64) * FOV;
             let (distance, _) = cast_ray(player_pos, ray_angle, &map);
 
-            // Розрахунок висоти стіни
             let wall_height = (SCREEN_HEIGHT as f64 / (distance + 0.0001)) as u32;
             let wall_top = (SCREEN_HEIGHT / 2).saturating_sub(wall_height / 2);
 
-            // Малювання стіни
             canvas.set_draw_color(Color::RGB(255, 255, 255));
             canvas.fill_rect(Rect::new(x as i32, wall_top as i32, 1, wall_height))?;
         }
 
-        // Малювання зброї (простий прямокутник зліва внизу)
-        canvas.set_draw_color(Color::RGB(100, 100, 100)); // Сірий колір для зброї
+        // Малювання ворогів
+        for enemy in &enemies {
+            let relative_x = enemy.pos.0 - player_pos.0;
+            let relative_y = enemy.pos.1 - player_pos.1;
+
+            let distance = (relative_x * relative_x + relative_y * relative_y).sqrt();
+            let angle = relative_y.atan2(relative_x) - player_angle;
+
+            let screen_x = (angle / FOV * SCREEN_WIDTH as f64 + SCREEN_WIDTH as f64 / 2.0) as i32;
+            let screen_y = (SCREEN_HEIGHT / 2) as i32;
+
+            let size = (SCREEN_HEIGHT as f64 / (distance + 0.0001)) as u32;
+            let enemy_top = screen_y - (size / 2) as i32;
+
+            canvas.set_draw_color(Color::RGB(255, 0, 0));
+            canvas.fill_rect(Rect::new(screen_x, enemy_top, 10, size))?;
+        }
+
+        // Малювання зброї
+        canvas.set_draw_color(Color::RGB(100, 100, 100));
         canvas.fill_rect(Rect::new(50, SCREEN_HEIGHT as i32 - 100, 50, 50))?;
 
         // Малювання куль
-        canvas.set_draw_color(Color::RGB(255, 0, 0)); // Червоний колір для куль
+        canvas.set_draw_color(Color::RGB(255, 0, 0));
         for bullet in &bullets {
             canvas.fill_rect(Rect::new(bullet.0 as i32, bullet.1 as i32, 5, 5))?;
         }
 
-        // Оновлення екрану
+        // Малювання здоров'я гравця
+        canvas.set_draw_color(Color::RGB(255, 0, 0));
+        canvas.fill_rect(Rect::new(10, 10, player_health as u32 * 2, 20))?;
+
         canvas.present();
         std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 30));
     }
@@ -199,7 +248,7 @@ fn cast_ray(pos: (f64, f64), angle: f64, map: &Vec<Vec<i32>>) -> (f64, i32) {
         y += dy;
 
         if y < 0.0 || y >= map.len() as f64 || x < 0.0 || x >= map[0].len() as f64 {
-            return (f64::MAX, 0); // Нічого не знайдено
+            return (f64::MAX, 0);
         }
 
         if map[y as usize][x as usize] != 0 {
