@@ -168,9 +168,19 @@ fn main() -> Result<(), String> {
             let dy = player_pos.1 - enemy.pos.1;
             let length = (dx * dx + dy * dy).sqrt();
 
-            if length > 0.0 {
-                enemy.pos.0 += (dx / length) * ENEMY_SPEED;
-                enemy.pos.1 += (dy / length) * ENEMY_SPEED;
+            // Перевірка, чи ворог бачить гравця (без стін на шляху)
+            if can_see_player(player_pos, enemy.pos, &map) {
+                if length > 0.0 {
+                    let (new_x, new_y) = (
+                        enemy.pos.0 + (dx / length) * ENEMY_SPEED,
+                        enemy.pos.1 + (dy / length) * ENEMY_SPEED,
+                    );
+
+                    // Перевірка колізій ворога зі стінами
+                    if map[new_y as usize][new_x as usize] == 0 {
+                        enemy.pos = (new_x, new_y);
+                    }
+                }
             }
 
             // Перевірка зіткнення з гравцем
@@ -253,6 +263,32 @@ fn cast_ray(pos: (f64, f64), angle: f64, map: &Vec<Vec<i32>>) -> (f64, i32) {
 
         if map[y as usize][x as usize] != 0 {
             return ((x - pos.0).hypot(y - pos.1), map[y as usize][x as usize]);
+        }
+    }
+}
+
+/// Перевірка, чи ворог бачить гравця (без стін на шляху)
+fn can_see_player(player_pos: (f64, f64), enemy_pos: (f64, f64), map: &Vec<Vec<i32>>) -> bool {
+    let (mut x, mut y) = enemy_pos;
+    let (dx, dy) = (
+        (player_pos.0 - enemy_pos.0) * 0.01,
+        (player_pos.1 - enemy_pos.1) * 0.01,
+    );
+
+    loop {
+        x += dx;
+        y += dy;
+
+        if y < 0.0 || y >= map.len() as f64 || x < 0.0 || x >= map[0].len() as f64 {
+            return false;
+        }
+
+        if map[y as usize][x as usize] != 0 {
+            return false;
+        }
+
+        if (x - player_pos.0).hypot(y - player_pos.1) < 0.1 {
+            return true;
         }
     }
 }
