@@ -6,7 +6,8 @@ edition = "2021"
 [dependencies]
 [dependencies.sdl2]
 version = "0.37.0"
-features = ["use-pkgconfig"]
+features = ["use-pkgconfig", "ttf"]
 #brew install cmake
 #brew install sdl2
 #export CFLAGS="-std=c99"
+#brew install sdl2 sdl2_ttf

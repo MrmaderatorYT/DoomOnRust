@@ -2,7 +2,10 @@ use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::Color;
 use sdl2::rect::Rect;
-use std::time::Duration;
+use sdl2::render::Canvas;
+use sdl2::video::Window;
+use sdl2::ttf::Sdl2TtfContext;
+use std::time::{Duration, Instant};
 
 const SCREEN_WIDTH: u32 = 800;
 const SCREEN_HEIGHT: u32 = 600;
@@ -34,6 +37,9 @@ fn main() -> Result<(), String> {
 
     let mut canvas = window.into_canvas().build().map_err(|e| e.to_string())?;
     let mut event_pump = sdl_context.event_pump()?;
+
+    // Ініціалізація TTF
+    let ttf_context = sdl2::ttf::init().map_err(|e| e.to_string())?;
 
     // Більша карта
     let map = vec![
@@ -67,6 +73,9 @@ fn main() -> Result<(), String> {
         },
     ];
 
+    let mut start_time = Instant::now(); // Початковий час
+    let mut enemies_killed = 0; // Лічильник вбитих ворогів
+
     'running: loop {
         // Обробка подій
         for event in event_pump.poll_iter() {
@@ -80,7 +89,8 @@ fn main() -> Result<(), String> {
                         break 'running;
                     }
                     if keycode == Keycode::Space {
-                        bullets.push((50.0, SCREEN_HEIGHT as f64 - 100.0));
+                        // Куля створюється на позиції гравця
+                        bullets.push((player_pos.0, player_pos.1));
                     }
                 }
                 _ => {}
@@ -142,33 +152,29 @@ fn main() -> Result<(), String> {
 
         // Оновлення позиції куль
         for bullet in &mut bullets {
-            let center_x = SCREEN_WIDTH as f64 / 2.0;
-            let center_y = SCREEN_HEIGHT as f64 / 2.0;
-
-            let dx = center_x - bullet.0;
-            let dy = center_y - bullet.1;
-            let length = (dx * dx + dy * dy).sqrt();
-
-            if length > 0.0 {
-                bullet.0 += (dx / length) * BULLET_SPEED;
-                bullet.1 += (dy / length) * BULLET_SPEED;
-            }
+            let dx = player_angle.cos() * BULLET_SPEED;
+            let dy = player_angle.sin() * BULLET_SPEED;
+            bullet.0 += dx;
+            bullet.1 += dy;
         }
 
+        // Видалення куль, які вийшли за межі карти
         bullets.retain(|bullet| {
-            let center_x = SCREEN_WIDTH as f64 / 2.0;
-            let center_y = SCREEN_HEIGHT as f64 / 2.0;
-            let distance = (bullet.0 - center_x).hypot(bullet.1 - center_y);
-            distance > 10.0
+            let (x, y) = *bullet;
+            x >= 0.0 && x < map[0].len() as f64 && y >= 0.0 && y < map.len() as f64
         });
 
         // Рух ворогів
         for enemy in &mut enemies {
+            if enemy.health <= 0 {
+                enemies_killed += 1;
+                continue;
+            }
+
             let dx = player_pos.0 - enemy.pos.0;
             let dy = player_pos.1 - enemy.pos.1;
             let length = (dx * dx + dy * dy).sqrt();
 
-            // Перевірка, чи ворог бачить гравця (без стін на шляху)
             if can_see_player(player_pos, enemy.pos, &map) {
                 if length > 0.0 {
                     let (new_x, new_y) = (
@@ -176,7 +182,6 @@ fn main() -> Result<(), String> {
                         enemy.pos.1 + (dy / length) * ENEMY_SPEED,
                     );
 
-                    // Перевірка колізій ворога зі стінами
                     if map[new_y as usize][new_x as usize] == 0 {
                         enemy.pos = (new_x, new_y);
                     }
@@ -211,6 +216,10 @@ fn main() -> Result<(), String> {
 
         // Малювання ворогів
         for enemy in &enemies {
+            if enemy.health <= 0 {
+                continue;
+            }
+
             let relative_x = enemy.pos.0 - player_pos.0;
             let relative_y = enemy.pos.1 - player_pos.1;
 
@@ -234,12 +243,18 @@ fn main() -> Result<(), String> {
         // Малювання куль
         canvas.set_draw_color(Color::RGB(255, 0, 0));
         for bullet in &bullets {
-            canvas.fill_rect(Rect::new(bullet.0 as i32, bullet.1 as i32, 5, 5))?;
+            // Перетворення координат карти на координати екрану
+            let screen_x = ((bullet.0 - player_pos.0) * 50.0 + (SCREEN_WIDTH as f64 / 2.0)) as i32;
+            let screen_y = ((bullet.1 - player_pos.1) * 50.0 + (SCREEN_HEIGHT as f64 / 2.0)) as i32;
+            canvas.fill_rect(Rect::new(screen_x, screen_y, 5, 5))?;
         }
 
         // Малювання здоров'я гравця
         canvas.set_draw_color(Color::RGB(255, 0, 0));
         canvas.fill_rect(Rect::new(10, 10, player_health as u32 * 2, 20))?;
+
+        // Малювання HUD
+        draw_hud(&mut canvas, &ttf_context, start_time, enemies_killed)?;
 
         canvas.present();
         std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 30));
@@ -291,4 +306,42 @@ fn can_see_player(player_pos: (f64, f64), enemy_pos: (f64, f64), map: &Vec<Vec<i
             return true;
         }
     }
+}
+
+/// Малювання HUD
+fn draw_hud(
+    canvas: &mut Canvas<Window>,
+    ttf_context: &Sdl2TtfContext,
+    start_time: Instant,
+    enemies_killed: i32,
+) -> Result<(), String> {
+    let elapsed_time = start_time.elapsed().as_secs(); // Час у секундах
+    let time_text = format!("Time: {}s", elapsed_time);
+    let kills_text = format!("Kills: {}", enemies_killed);
+
+    // Шлях до стандартного шрифту (залежить від системи)
+    let font_path = if cfg!(target_os = "windows") {
+        "C:/Windows/Fonts/Arial.ttf" // Шлях до Arial на Windows
+    } else if cfg!(target_os = "macos") {
+        "/System/Library/Fonts/Supplemental/Arial.ttf" // Шлях до Arial на macOS
+    } else {
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf" // Шлях до DejaVuSans на Linux
+    };
+
+    let font = ttf_context.load_font(font_path, 24).map_err(|e| e.to_string())?; // Шрифт
+    let texture_creator = canvas.texture_creator();
+
+    // Відображення часу
+    let surface = font.render(&time_text).blended(Color::RGB(255, 255, 255)).map_err(|e| e.to_string())?;
+    let texture = texture_creator.create_texture_from_surface(&surface).map_err(|e| e.to_string())?;
+    let query = texture.query();
+    canvas.copy(&texture, None, Rect::new(10, 10, query.width, query.height))?;
+
+    // Відображення лічильника вбитих ворогів
+    let surface = font.render(&kills_text).blended(Color::RGB(255, 255, 255)).map_err(|e| e.to_string())?;
+    let texture = texture_creator.create_texture_from_surface(&surface).map_err(|e| e.to_string())?;
+    let query = texture.query();
+    canvas.copy(&texture, None, Rect::new(10, 50, query.width, query.height))?;
+
+    Ok(())
 }
